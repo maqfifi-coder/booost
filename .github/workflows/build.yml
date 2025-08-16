@@ -1,0 +1,52 @@
+name: Build Desktop Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build web (PWA)
+        shell: bash
+        working-directory: ./web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy web/dist into desktop/app
+        shell: bash
+        run: |
+          mkdir -p desktop/app
+          cp -r web/dist/* desktop/app/
+
+      - name: Install desktop deps
+        shell: bash
+        working-directory: ./desktop
+        run: npm ci
+
+      - name: Build installers
+        shell: bash
+        working-directory: ./desktop
+        run: npm run dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyBoost-Windows
+          path: desktop/release/**
