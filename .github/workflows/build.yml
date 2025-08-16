@@ -1,21 +1,52 @@
-name: Build Desktop Apps
+name: Build Desktop Apps (Auto Paths, Windows-first)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-
+    runs-on: windows-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Show root tree
+        shell: bash
+        run: |
+          pwd
+          ls -la
+          echo "---- EXPECTED at some level: web/ and desktop/"
+
+      - name: Detect paths for web/ and desktop/
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          # Try common layouts
+          if [ -d "web" ] && [ -d "desktop" ]; then
+            WEB_DIR="web"
+            DESKTOP_DIR="desktop"
+          elif [ -d "DailyBoost-Desktop/web" ] && [ -d "DailyBoost-Desktop/desktop" ]; then
+            WEB_DIR="DailyBoost-Desktop/web"
+            DESKTOP_DIR="DailyBoost-Desktop/desktop"
+          elif [ -d "DailyBoost/web" ] && [ -d "DailyBoost/desktop" ]; then
+            WEB_DIR="DailyBoost/web"
+            DESKTOP_DIR="DailyBoost/desktop"
+          else
+            echo "Could not find web/ and desktop/ at root or common subfolders."
+            echo "Current tree (top level):"
+            ls -la
+            echo "Recursive tree (first 2 levels):"
+            find . -maxdepth 2 -type d -print
+            exit 1
+          fi
+
+          echo "WEB_DIR=$WEB_DIR"       >> $GITHUB_ENV
+          echo "DESKTOP_DIR=$DESKTOP_DIR" >> $GITHUB_ENV
+
+          echo "Detected:"
+          echo " - WEB_DIR=$WEB_DIR"
+          echo " - DESKTOP_DIR=$DESKTOP_DIR"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -24,29 +55,38 @@ jobs:
 
       - name: Build web (PWA)
         shell: bash
-        working-directory: ./web
         run: |
-          npm ci
+          set -e
+          cd "$WEB_DIR"
+          echo "In $(pwd)"
+          # Usamos install en vez de ci por si no subiste package-lock.json
+          npm install
           npm run build
 
       - name: Copy web/dist into desktop/app
         shell: bash
         run: |
-          mkdir -p desktop/app
-          cp -r web/dist/* desktop/app/
+          set -e
+          mkdir -p "$DESKTOP_DIR/app"
+          cp -r "$WEB_DIR/dist/." "$DESKTOP_DIR/app/"
 
       - name: Install desktop deps
         shell: bash
-        working-directory: ./desktop
-        run: npm ci
+        run: |
+          set -e
+          cd "$DESKTOP_DIR"
+          echo "In $(pwd)"
+          npm install
 
       - name: Build installers
         shell: bash
-        working-directory: ./desktop
-        run: npm run dist
+        run: |
+          set -e
+          cd "$DESKTOP_DIR"
+          npm run dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DailyBoost-Windows
-          path: desktop/release/**
+          path: ${{ env.DESKTOP_DIR }}/release/**
